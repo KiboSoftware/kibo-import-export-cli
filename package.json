@@ -1,0 +1,43 @@
+{
+  "name": "@kibocommerce/import-export-cli",
+  "version": "0.0.3",
+  "description": "kibo import export cli",
+  "engines": {
+    "node": ">=16"
+  },
+  "bin": {
+    "import-export": "./bin/index.js"
+  },
+  "scripts": {
+    "pretier": "prettier --write .",
+    "lint": "eslint .",
+    "lint2": "eslint src/catalog-sync-util.js ",
+    "lint-reset": "eslint --no-eslintrc --env es6 --parser-options=ecmaVersion:2018 --reset --cache --cache-location node_modules/.cache/eslint/",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "cli-progress": "^3.12.0",
+    "csv": "^6.3.3",
+    "csv-parse": "^5.5.0",
+    "csv-stringify": "^6.4.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "http-proxy-agent": "^7.0.0",
+    "node-fetch": "^3.3.2",
+    "progressbar": "^1.3.0",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "babel-eslint": "^10.1.0",
+    "eslint": "^7.32.0",
+    "eslint-config-airbnb-base": "^14.2.1",
+    "eslint-plugin-babel": "^5.3.1",
+    "eslint-plugin-import": "^2.24.2",
+    "eslint-plugin-react": "^7.33.2",
+    "prettier": "^3.0.3"
+    
+  }
+}
