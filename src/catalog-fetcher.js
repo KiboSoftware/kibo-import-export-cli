@@ -86,9 +86,21 @@ class CatalogFetcher {
     return data;
   }
 
-  async getAttributes(startIndex, pageSize) {
+  async getProductTypes(startIndex, pageSize,{responseFields} ) {
     const response = await fetch(
-      `${this.apiRoot}/commerce/catalog/admin/attributedefinition/attributes?startIndex=${startIndex}&pageSize=${pageSize}&responseFields=items(adminName,namespace,attributeCode,attributeFQN)`,
+      `${this.apiRoot}/commerce/catalog/admin/attributedefinition/producttypes?startIndex=${startIndex}&pageSize=${pageSize}&responseFields=${responseFields}`,
+      {
+        method: 'GET',
+        headers: this.headers,
+      },
+    );
+    const data = await response.json();
+    return data;
+  }
+
+  async getAttributes(startIndex, pageSize,{responseFields} ) {
+    const response = await fetch(
+      `${this.apiRoot}/commerce/catalog/admin/attributedefinition/attributes?startIndex=${startIndex}&pageSize=${pageSize}&responseFields=${responseFields}`,
       {
         method: 'GET',
         headers: this.headers,
@@ -113,7 +125,30 @@ class CatalogFetcher {
     return data;
   }
 
-  async getAllAttributes() {
+
+  async getAllProductTypes({responseFields }) {
+    console.log(`getting all ProductTypes [${this.headers['x-vol-master-catalog']}]`);
+    let items = [];
+    let startIndex = 0;
+    let pageCount = 1;
+    const pageSize = 200;
+    const progressBar = new SingleBar({}, Presets.shades_classic);
+    while (startIndex < pageCount * pageSize) {
+      const data = await this.getProductTypes(startIndex, pageSize, {responseFields });
+      if (startIndex == 0) {
+        progressBar.start(data.totalCount, 0);
+      }
+      items = items.concat(data.items);
+      pageCount = data.pageCount;
+      progressBar.update(startIndex + data.items?.length);
+      startIndex += pageSize;
+    }
+    
+    progressBar.stop();
+    return items;
+  }
+
+  async getAllAttributes({responseFields }) {
     console.log(`getting all Attributes [${this.headers['x-vol-master-catalog']}]`);
     let items = [];
     let startIndex = 0;
@@ -121,7 +156,7 @@ class CatalogFetcher {
     const pageSize = 200;
     const progressBar = new SingleBar({}, Presets.shades_classic);
     while (startIndex < pageCount * pageSize) {
-      const data = await this.getAttributes(startIndex, pageSize);
+      const data = await this.getAttributes(startIndex, pageSize, {responseFields });
       if (startIndex == 0) {
         progressBar.start(data.totalCount, 0);
       }

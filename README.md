@@ -1,8 +1,6 @@
-# README.md
-
 ## Kibo Import Export (CLI Tool)
 
-This CLI tool provides utilities for syncing, managing, and validating configurations related to catalogs in a given tenant.
+This CLI tool provides utilities for working with the Kibo Import Export API.
 
 ### Prerequisites
 
@@ -22,7 +20,7 @@ Ensure you have Node.js 16+ installed.
 
    You can use the `init-env` command to create an empty `.env` file.
     ```bash
-   import-export-cli init-env
+   kibo-import-export init-env
    ```
 
 ### Available Commands
@@ -42,14 +40,14 @@ Ensure you have Node.js 16+ installed.
 To use the CLI tool, run the following command:
 
 ```bash
-import-export-cli [command] [options]
+kibo-import-export [command] [options]
 ```
 
 Replace `[command]` with any of the available commands listed above.
 
 Example:
 ```bash
-import-export-cli validate --all
+kibo-import-export validate --all
 ```
 
 ### Environment Variables
