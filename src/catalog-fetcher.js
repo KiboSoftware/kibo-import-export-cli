@@ -214,7 +214,13 @@ class CatalogFetcher {
       }
       throw new Error(response.statusText);
     }
-    this.state.tenants[tenantId] = await response.json();
+    tenant = await response.json();
+    tenant.maps ={};
+    tenant.maps.masterCatalgByName = {};
+    for ( const mc of tenant.masterCatalogs){
+      tenant.maps.masterCatalgByName [mc.name.toLowerCase()] = mc;
+    }
+    this.state.tenants[tenantId] = tenant;
     return this.state.tenants[tenantId];
   }
 

@@ -14,7 +14,7 @@ class Validator {
     this.catalogFetch = catalogFetch || new CatalogFetcher();
     this.state = {
       attibures: {},
-      productTypes:{}
+      productTypes: {},
     };
     this.directory = path.resolve(directory || '.');
     this.fileMap = {
@@ -43,9 +43,41 @@ class Validator {
       attributes[mc.id] = await this.catalogFetch.getAllAttributes({
         responseFields,
       });
-      attributes[mc.name.toLowerCase()] = attributes[mc.id];
     }
     return (this.state.attibures[responseFields || 'default'] = attributes);
+  };
+
+  getAttributeMap = async () => {
+    const attributes = await this.getAttributes({
+      responseFields: 'items(attributeCode,attributeFQN)',
+    });
+
+    const attributeMap = {};
+
+    for (const [key, value] of Object.entries(attributes)) {
+      attributeMap[key] = value.reduce((acc, item) => {
+        acc.push(
+          item.attributeCode?.toLowerCase(),
+          item.attributeFQN?.toLowerCase(),
+        );
+        return acc;
+      }, []);
+    }
+
+    return attributeMap;
+  };
+  getProducTypeMap = async () => {
+    const productTypes = await this.getProductTypes({
+      responseFields: 'items(id,name)',
+    });
+    const productTypeMap = {};
+    for (const [key, value] of Object.entries(productTypes)) {
+      productTypeMap[key] = value.reduce((acc, item) => {
+        acc.push(item.name?.toLowerCase());
+        return acc;
+      }, []);
+    }
+    return productTypeMap;
   };
 
   getProductTypes = async ({ responseFields }) => {
@@ -76,6 +108,29 @@ class Validator {
     return matchingFile ? path.join(this.directory, matchingFile) : null;
   }
 
+  populateCatalogIds(record, tenant) {
+    const mcName = entry.record['mastercatalogname']?.toLowerCase();
+    if (mcName) {
+      const mc = tenant.masterCatalogs.find(
+        (mc) => mc.name.toLowerCase() === mcName,
+      );
+      if (mc) {
+        record['mastercatalog'] = mc.id;
+      }
+    }
+    const catName = entry.record['catalogname']?.toLowerCase();
+    if (catName) {
+      const cat = tenant.masterCatalogs.fla.catalogs.find(
+        (cat) => cat.name.toLowerCase() === catName,
+      );
+      if (cat) {
+        record['catalog'] = cat.id;
+      }
+    }
+    return;
+    record;
+  }
+
   async validateAll() {
     let flag = false;
     for (const file in this.fileMap) {
@@ -89,24 +144,18 @@ class Validator {
       this.logError({ message: 'No files found to validate' });
     }
   }
-  async validateproductTypeAttributes() {
-    const records = [];
-    const attributes = await this.getAttributes({
-      responseFields: 'items(attributeCode,attributeFQN)',
-    });
-    const productTypes = await this.getProductTypes({
-      responseFields: 'items(id,name)',
-    });
-    const file = this.getFileNameInDirectory('productTypeAttributes.csv');
+
+  getParser(fileName) {
+    const file = this.getFileNameInDirectory(fileName);
     if (!file) {
       this.logError({
         file,
         line: 0,
-        message: 'productTypeAttributes.csv file not found',
+        message: `${fileName} file not found`,
       });
       return;
     }
-    const parser = fs.createReadStream(file).pipe(
+    const parser =  fs.createReadStream(file).pipe(
       parse({
         info: true,
         columns: (header) =>
@@ -114,61 +163,64 @@ class Validator {
         raw: true,
       }),
     );
-    let report = [];
+    return {parser,file};
+  }
 
-    const schema = Joi.object()
-      .keys({
-        producttype: Joi.string().lowercase().required(),
-        type: Joi.string()
+  toStringSetValidator ( values, required = true) {
+    let joyKey = Joi.string()
+      .lowercase()
+      .valid(...values);
+    if ( required){
+      joyKey = joyKey.required();
+    }
+    return joyKey;
+  }
+  toDependandStringSetValidator(mapping, depends = 'mastercatalog',  required = true) {
+    let joyKey = Joi.when(depends, {
+      switch: Object.entries(mapping).map(([key, values]) => ({
+        is: Number(key),
+        then: Joi.string()
           .lowercase()
-          .valid('property', 'option', 'extra', 'variantproperty')
-          .required(),
-        attributecode: Joi.string()
-          .regex(/^[a-zA-Z0-9-_]+$/)
-          .min(3)
-          .max(50)
-          .required(),
-      })
-      .unknown(true);
+          .valid(...values),
+      })),
+    });
+    if ( required){
+      joyKey = joyKey.required();
+    }
+    return joyKey;
+
+  }
+
+  async validateproductTypeAttributes() {
+    const tenant = await this.catalogFetch.getTenant();
+
+    const attributes = await this.getAttributeMap();
+    const productTypes = await this.getProducTypeMap();
+    const {parser,file} = this.getParser('productTypeAttributes.csv');
+    if (!parser) {
+      return false;
+    }
+
+    const productTypeSchema = this.toDependandStringSetValidator(productTypes);
+    const attributeCodeSchema = this.toDependandStringSetValidator(attributes);
+    const typeSchema = this.toStringSetValidator( ['property', 'option', 'extra', 'variantproperty']);
+    const schema = Joi.object({
+      mastercatalog: Joi.number().integer().required(),
+      producttype: productTypeSchema,
+      attributecode: attributeCodeSchema,
+      type: typeSchema,
+    }).unknown(true);
 
     for await (const entry of parser) {
-      let value = schema.validate(entry.record);
+      entry.record.mastercatalog =
+        entry.mastercatalog ??
+        tenant.maps.masterCatalgByName[
+          entry.record.mastercatalogname?.toLowerCase() || ''
+        ]?.id;
+      let value = schema.validate(entry.record, { debug: false });
       if (value.error) {
         value.error.details.forEach((err) => {
           this.logError({ file, line: entry.info.lines, message: err.message });
-        });
-        return false;
-      }
-
-      const mcName = entry.record['mastercatalogname']?.toLowerCase();
-      const mcId =
-        entry.record['mastercatalog'] || entry.record['mastercatalog'] || '';
-
-      const attributeCode = entry.record['attributecode'];
-      const attribute = (attributes[mcId] || attributes[mcName])?.find(
-        (attr) =>
-          attr.attributeCode?.toLowerCase() === attributeCode.toLowerCase() ||
-          attr.attributeFQN.toLowerCase() === attributeCode.toLowerCase(),
-      );
-      if (!attribute) {
-        this.logError({
-          file,
-          line: entry.info.lines,
-          message: `attribute ${attributeCode} not found`,
-        });
-        return false;
-      }
-
-      const productType = (productTypes[mcId] || productTypes[mcName])?.find(
-        (pt) =>
-          pt.name.toLowerCase() === entry.record['producttype'].toLowerCase(),
-      );
-
-      if (!productType) {
-        this.logError({
-          file,
-          line: entry.info.lines,
-          message: `productType ${entry.record['producttype']} not found`,
         });
         return false;
       }
