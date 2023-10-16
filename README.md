@@ -47,7 +47,7 @@ Replace `[command]` with any of the available commands listed above.
 
 Example:
 ```bash
-kibo-import-export validate --all
+kibo-import-export validate --all 
 ```
 
 ### Environment Variables

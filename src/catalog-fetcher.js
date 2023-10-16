@@ -194,6 +194,7 @@ class CatalogFetcher {
   }
   async getTenant(tenantId) {
     tenantId = tenantId || this.tenantId;
+    this.state.tenants = this.state.tenants ||{};
     let tenant = this.state.tenants[tenantId];
     if (tenant) {
       return tenant;

@@ -105,6 +105,7 @@ Yargs(process.argv.slice(2))
 
 async function performActions(actions, args) {
   var validator = createValidator(args.directory);
+  validator.loadState();
   if (actions.indexOf('validateAccountSettings') == -1) {
     actions.unshift('validateAccountSettings');
   }
@@ -113,6 +114,7 @@ async function performActions(actions, args) {
     await validator[action](args);
     console.log(`completed action ${action}`);
   }
+  validator.saveState();
 }
 
 function initEnv() {

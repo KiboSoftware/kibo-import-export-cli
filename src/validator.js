@@ -12,14 +12,25 @@ class Validator {
   constructor(catalogFetch, directory) {
     this.report = [];
     this.catalogFetch = catalogFetch || new CatalogFetcher();
+
     this.state = {
       attibures: {},
       productTypes: {},
     };
+    
     this.directory = path.resolve(directory || '.');
     this.fileMap = {
       'producttypeattributes.csv': this.validateproductTypeAttributes,
     };
+  }
+  loadState(){
+    if ( fs.existsSync('.state.json') ) {
+      this.state = JSON.parse(fs.readFileSync('.state.json'));
+      this.catalogFetch.state = this.state;
+    }
+  }
+  saveState(){
+    fs.writeFileSync('.state.json', JSON.stringify(this.state));
   }
   logError({ file, line, message }) {
     let cnt = `file: ${file} line:${line} ${message}`;
@@ -49,7 +60,8 @@ class Validator {
 
   getAttributeMap = async () => {
     const attributes = await this.getAttributes({
-      responseFields: 'items(attributeCode,attributeFQN)',
+      responseFields:
+        'items(attributeCode,attributeFQN,isOption,isExtra,isProperty)',
     });
 
     const attributeMap = {};
@@ -155,7 +167,7 @@ class Validator {
       });
       return;
     }
-    const parser =  fs.createReadStream(file).pipe(
+    const parser = fs.createReadStream(file).pipe(
       parse({
         info: true,
         columns: (header) =>
@@ -163,19 +175,23 @@ class Validator {
         raw: true,
       }),
     );
-    return {parser,file};
+    return { parser, file };
   }
 
-  toStringSetValidator ( values, required = true) {
+  toStringSetValidator(values, required = true) {
     let joyKey = Joi.string()
       .lowercase()
       .valid(...values);
-    if ( required){
+    if (required) {
       joyKey = joyKey.required();
     }
     return joyKey;
   }
-  toDependandStringSetValidator(mapping, depends = 'mastercatalog',  required = true) {
+  toDependandStringSetValidator(
+    mapping,
+    depends = 'mastercatalog',
+    required = true,
+  ) {
     let joyKey = Joi.when(depends, {
       switch: Object.entries(mapping).map(([key, values]) => ({
         is: Number(key),
@@ -184,26 +200,77 @@ class Validator {
           .valid(...values),
       })),
     });
-    if ( required){
+    if (required) {
       joyKey = joyKey.required();
     }
     return joyKey;
+  }
 
+  async validateProductTypeAttributeValues() {
+    const { parser, file } = this.getParser('productTypeAttributeValues.csv');
+    if (!parser) {
+      return false;
+    }
+
+    const tenant = await this.catalogFetch.getTenant();
   }
 
   async validateproductTypeAttributes() {
     const tenant = await this.catalogFetch.getTenant();
 
+    const propAttributes = await this.getAttributes({
+      responseFields:
+        'items(attributeCode,attributeFQN,isOption,isExtra,isProperty)',
+    });
     const attributes = await this.getAttributeMap();
     const productTypes = await this.getProducTypeMap();
-    const {parser,file} = this.getParser('productTypeAttributes.csv');
+    const { parser, file } = this.getParser('productTypeAttributes.csv');
     if (!parser) {
       return false;
     }
 
     const productTypeSchema = this.toDependandStringSetValidator(productTypes);
     const attributeCodeSchema = this.toDependandStringSetValidator(attributes);
-    const typeSchema = this.toStringSetValidator( ['property', 'option', 'extra', 'variantproperty']);
+    const typeSchema = Joi.string()
+      .required()
+      .lowercase()
+      .custom((value, helpers) => {
+        let record = helpers.state.ancestors;
+        let mc = record[0].mastercatalog;
+        let att = propAttributes[mc].find(
+          (att) =>
+            att.attributeCode.toLowerCase() ===
+            record[0].attributecode.toLowerCase(),
+        );
+        if (att != null) {
+          switch (value) {
+            case 'property':
+              if (!att.isProperty) {
+                return helpers.message('attribute doesnt support isProperty');
+              }
+              break;
+            case 'option':
+              if (!att.isOption) {
+                return helpers.message('attribute doesnt support isOption');
+              }
+              break;
+            case 'extra':
+              if (!att.isExtra) {
+                return helpers.message('attribute doesnt support isExtra');
+              }
+              break;
+            case 'variantproperty':
+              if (!att.isProperty) {
+                return helpers.message('attribute doesnt support isProperty');
+              }
+              break;
+            default:
+              return helpers.message('invalid type');
+          }
+        }
+        return value;
+      });
+
     const schema = Joi.object({
       mastercatalog: Joi.number().integer().required(),
       producttype: productTypeSchema,
