@@ -67,11 +67,13 @@ Yargs(process.argv.slice(2))
     default: false,
     describe: 'validate all files',
   })
-  .option('product-type-attributes', {
-    type: 'boolean',
-    default: false,
-    describe: 'validate all productTypeAttributes file',
+  .option('files', {
+    alias: 'f',
+    type: 'Array',
+    default: [],
+    describe: 'list of files',
   })
+
 
   .command({
     command: 'validate',
@@ -80,6 +82,10 @@ Yargs(process.argv.slice(2))
       if (argv.all) {
         return performActions(['validateAll'], argv);
       }
+      if ( argv.files ){
+        performActions(['validateFiles'], argv);
+      }
+
       if (argv['product-type-attributes']) {
         performActions(['validateAll'], argv);
       }

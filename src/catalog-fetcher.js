@@ -98,7 +98,20 @@ class CatalogFetcher {
     return data;
   }
 
+  async getAttributeValues( code , {responseFields} ){
+    this.headers.Authorization = `Bearer ${await this.postOAuth()}`;
+    const response = await fetch(
+      `${this.apiRoot}/commerce/catalog/admin/attributedefinition/attributes/${code}/VocabularyValues?responseFields=${responseFields}`,
+      {
+        method: 'GET',
+        headers: this.headers,
+      },
+    );
+    const data = await response.json();
+    return data;
+  }
   async getAttributes(startIndex, pageSize,{responseFields} ) {
+    this.headers.Authorization = `Bearer ${await this.postOAuth()}`;
     const response = await fetch(
       `${this.apiRoot}/commerce/catalog/admin/attributedefinition/attributes?startIndex=${startIndex}&pageSize=${pageSize}&responseFields=${responseFields}`,
       {
@@ -146,6 +159,21 @@ class CatalogFetcher {
     
     progressBar.stop();
     return items;
+  }
+
+  async getAllAttributeValues({responseFields, codes }) {
+    console.log(`getting all Attribute Values [${this.headers['x-vol-master-catalog']}]`);
+    const progressBar = new SingleBar({}, Presets.shades_classic);
+    const ret ={};
+    let cnt = 0;
+    progressBar.start(codes.length, 0);
+    for ( let code of codes){
+      const data = await this.getAttributeValues(code, {responseFields });
+      ret[code]=data;
+      progressBar.update(cnt++);
+    }
+    progressBar.stop();
+    return ret;
   }
 
   async getAllAttributes({responseFields }) {
