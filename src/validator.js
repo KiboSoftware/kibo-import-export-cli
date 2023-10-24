@@ -6,7 +6,7 @@ import path from 'path';
 import { parse } from 'csv-parse';
 
 import CatalogFetcher from './catalog-fetcher.js';
-import Joi  from 'joi';
+import Joi from 'joi';
 
 class Validator {
   constructor(catalogFetch, directory) {
@@ -17,22 +17,29 @@ class Validator {
       attibures: {},
       productTypes: {},
     };
-    
+
     this.directory = path.resolve(directory || '.');
     this.fileMap = {
       'attributes.csv': this.validateAttributes,
+      'attributevalues.csv': this.validateAttributeValues,
+      'producttypes.csv': this.validateProductTypes,
       'producttypeattributes.csv': this.validateproductTypeAttributes,
       'producttypeattributevalues.csv': this.validateProductTypeAttributeValues,
     };
   }
-  loadState(){
-    if ( fs.existsSync('.state.json') ) {
+  loadState() {
+    //check if folder cache exists
+
+    if (fs.existsSync('.cache/state.json')) {
       this.state = JSON.parse(fs.readFileSync('.state.json'));
       this.catalogFetch.state = this.state;
     }
   }
-  saveState(){
-    fs.writeFileSync('.state.json', JSON.stringify(this.state));
+  saveState() {
+    if (!fs.existsSync('.cache')) {
+      fs.mkdirSync('.cache');
+    }
+    fs.writeFileSync('.cache/state.json', JSON.stringify(this.state));
   }
   logError({ file, line, message }) {
     let cnt = `file: ${file} line:${line} ${message}`;
@@ -151,7 +158,12 @@ class Validator {
       if (this.getFileNameInDirectory(file)) {
         flag = true;
         console.log(`validating file ${file}`);
-        await this.fileMap[file].call(this);
+        let result = await this.fileMap[file].call(this);
+        if ( result === false){
+          return false;
+         // process.exit(-1);
+        }
+        
       }
     }
     if (!flag) {
@@ -208,14 +220,79 @@ class Validator {
     return joyKey;
   }
   booleanValidator(required = true) {
-    let val =  Joi.string().lowercase().valid('true', 'false','yes','no');
-    if ( required ) {
+    let val = Joi.string().lowercase().valid('true', 'false', 'yes', 'no');
+    if (required) {
       return val.required();
     }
     return val.allow('');
   }
 
-  async validateAttributes(){
+  async validate ({ tenant , file, parser , schema}){
+    
+
+    for await (const entry of parser) {
+      entry.record.mastercatalog =
+        entry.mastercatalog ??
+        tenant.maps.masterCatalgByName[
+          entry.record.mastercatalogname?.toLowerCase() || ''
+        ]?.id;
+      let value = schema.validate(entry.record, { debug: false });
+      if (value.error) {
+        value.error.details.forEach((err) => {
+          this.logError({ file, line: entry.info.lines, message: err.message });
+        });
+        return false;
+      }
+    }
+
+    this.logInfo({ file, line: -1, message: `valid` });
+    return true;
+  }
+  async validateAttributeValues() {
+    const { parser, file } = this.getParser('attributevalues.csv');
+    if (!parser) {
+      return false;
+    }
+
+    const tenant = await this.catalogFetch.getTenant();
+    const attributes = await this.getAttributeMap();
+    const attributeCodeSchema = this.toDependandStringSetValidator(attributes);
+    const namespaceSchema = Joi.string().required();
+    const dataTypeSchema = Joi.string()
+      .required()
+      .lowercase()
+      .valid('string', 'number', 'bool', 'datetime', 'productcode');
+    const displayOrderSchmea = Joi.number();
+    const valueSchema = Joi.string().required();
+
+    const requiredName = Joi.string().required();
+
+    const nameSchema = Joi
+      .custom((value, helpers) => { 
+        let record = helpers.state.ancestors;
+        let dataType = record[0].datatype?.toLowerCase();
+        if ( dataType == 'string'){
+          let ret =  requiredName.validate(value);
+          if ( ret.error){
+            return helpers.error(ret.error.message)
+          }
+        }
+        return value;
+      });
+      const schema = Joi.object({
+        mastercatalog: Joi.number().integer().required(),
+        attributecode: attributeCodeSchema,
+        datatype: dataTypeSchema,
+        namespace: namespaceSchema,
+        value: valueSchema,
+        name: nameSchema,
+        displayorder: displayOrderSchmea,
+      }).unknown(true);
+
+      return await this.validate({ tenant, file , parser , schema })
+  }
+
+  async validateAttributes() {
     //MasterCatalogName,AttributeCode,AttributeAdminName,AttributeName,Description,DataType,InputType,IsExtra,IsOption,IsProperty,Namespace,SearchableInStorefront,SearchableInAdmin,SearchDisplayValue,AvailableForOrderRouting
     const { parser, file } = this.getParser('attributes.csv');
     if (!parser) {
@@ -234,14 +311,7 @@ class Validator {
     const inputTypeSchema = Joi.string()
       .required()
       .lowercase()
-      .valid(
-        'list',
-        'textbox',
-        'yesno',
-        'textarea',
-        'datetime',
-        'date',
-      );
+      .valid('list', 'textbox', 'yesno', 'textarea', 'datetime', 'date');
     const isExtraSchema = this.booleanValidator();
     const isOptionSchema = this.booleanValidator();
     const isPropertySchema = this.booleanValidator();
@@ -284,7 +354,6 @@ class Validator {
     }
 
     this.logInfo({ file, line: -1, message: `valid` });
-
   }
   async validateProductTypeAttributeValues() {
     const { parser, file } = this.getParser('productTypeAttributeValues.csv');
@@ -294,7 +363,6 @@ class Validator {
 
     //MasterCatalogName,ProductType,AttributeCode,Type,VocabularyValue
 
-    
     const attributes = await this.getAttributeMap();
     const productTypes = await this.getProducTypeMap();
     const attributeCodeSchema = this.toDependandStringSetValidator(attributes);
@@ -343,18 +411,80 @@ class Validator {
         return value;
       });
 
+    const vocabValueSchema2 = Joi.string().required();
+
     const vocabValueSchema = Joi.string()
-      .required();
+      .required()
+      .lowercase()
+      .custom((value, helpers) => {
+        let record = helpers.state.ancestors;
+        let mc = record[0].mastercatalog;
+        let att = propAttributes[mc].find(
+          (att) =>
+            att.attributeCode.toLowerCase() ===
+            record[0].attributecode.toLowerCase(),
+        );
+        return helpers.message('in valid value ' + value);
+        return false;
+      });
+    //fart
+    //MasterCatalogName,ProductType,AttributeCode,Type,VocabularyValue
 
     const schema = Joi.object({
       mastercatalog: Joi.number().integer().required(),
       producttype: productTypeSchema,
       attributecode: attributeCodeSchema,
       type: typeSchema,
-      vocabularyvalue:vocabValueSchema
+      vocabularyvalue: vocabValueSchema,
     }).unknown(true);
 
     const tenant = await this.catalogFetch.getTenant();
+
+    for await (const entry of parser) {
+      entry.record.mastercatalog =
+        entry.mastercatalog ??
+        tenant.maps.masterCatalgByName[
+          entry.record.mastercatalogname?.toLowerCase() || ''
+        ]?.id;
+      let value = schema.validate(entry.record, { debug: false });
+      if (value.error) {
+        value.error.details.forEach((err) => {
+          this.logError({ file, line: entry.info.lines, message: err.message });
+        });
+        return false;
+      }
+    }
+
+    this.logInfo({ file, line: -1, message: `valid` });
+  }
+
+  async validateProductTypes() {
+    //MasterCatalogName,ProductType,Standard,Configurable,Bundle,Component,Collection,GoodsType
+
+    const tenant = await this.catalogFetch.getTenant();
+
+    const attributes = await this.getAttributeMap();
+    const productTypes = await this.getProducTypeMap();
+    const { parser, file } = this.getParser('productTypes.csv');
+    if (!parser) {
+      return false;
+    }
+
+    const productTypeSchema = Joi.string().required().min(3).max(30);
+    const goodsTypeSchema = Joi.string()
+      .lowercase()
+      .valid('digital', 'physical');
+    const booleanValidator = this.booleanValidator();
+    const schema = Joi.object({
+      mastercatalog: Joi.number().integer().required(),
+      producttype: productTypeSchema,
+      standard: booleanValidator,
+      configurable: booleanValidator,
+      bundle: booleanValidator,
+      component: booleanValidator,
+      collection: booleanValidator,
+      goodstype: goodsTypeSchema,
+    }).unknown(true);
 
     for await (const entry of parser) {
       entry.record.mastercatalog =
@@ -383,7 +513,7 @@ class Validator {
     });
     const attributes = await this.getAttributeMap();
     const productTypes = await this.getProducTypeMap();
-    const { parser, file } = this.getParser('productTypeAttributes.csv');
+    const { parser, file } = this.getParser('productTypes.csv');
     if (!parser) {
       return false;
     }
