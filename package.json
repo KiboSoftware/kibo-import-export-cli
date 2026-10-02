@@ -21,7 +21,7 @@
   "dependencies": {
     "cli-progress": "^3.12.0",
     "csv": "^6.3.3",
-    "csv-parse": "^5.5.0",
+    "csv-parse": "^7.0.3",
     "csv-stringify": "^6.4.2",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
